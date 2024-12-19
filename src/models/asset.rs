@@ -53,11 +53,7 @@ pub fn build_live_manifest<const N: usize, const M: usize>(
 ) -> Result<String, ApiError> {
     let end_since_epoch = now_in_timescale(fragment.timescale as i64);
     let sequence = end_since_epoch / fragment.duration as i64 - LIVE_FRAGMENT_COUNT;
-    let pdt = DateTime::from_timestamp_millis(
-        sequence * fragment.duration as i64 * 1000 / fragment.timescale as i64,
-    )
-    .unwrap()
-    .to_rfc3339();
+    let pdt = get_pdt(sequence, &fragment);
 
     let header = format!(
         include_str!("../../assets/media/template.m3u8"),
@@ -88,13 +84,17 @@ pub fn build_vod_manifest<const N: usize, const M: usize>(
     );
 
     let sequence = start_since_epoch / fragment.duration as i64;
-    let pdt = DateTime::from_timestamp_millis(sequence * fragment.duration as i64)
-        .unwrap()
-        .to_rfc3339();
+    let pdt = get_pdt(sequence, &fragment);
 
     let header = format!(
         include_str!("../../assets/media/template_vod.m3u8"),
-        sequence, playlist_type, pdt, is_vtt
+        sequence,
+        playlist_type,
+        pdt,
+        match is_vtt {
+            true => "",
+            false => "\n#EXT-X-MAP:URI=\"init.m4i\"",
+        }
     );
     let mut fragments = create_fragment_list(sequence, fragment_count, fragment.extinf)?;
     if playlist_type == "VOD" {
@@ -102,6 +102,17 @@ pub fn build_vod_manifest<const N: usize, const M: usize>(
     }
 
     Ok(header + &fragments)
+}
+
+fn get_pdt<const N: usize, const M: usize>(
+    sequence: i64,
+    fragment: &FragmentParams<N, M>,
+) -> String {
+    DateTime::from_timestamp_millis(
+        sequence * fragment.duration as i64 * 1000 / fragment.timescale as i64,
+    )
+    .unwrap()
+    .to_rfc3339()
 }
 
 fn get_playlist_parameters<const N: usize, const M: usize>(

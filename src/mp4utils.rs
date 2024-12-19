@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::api_error::ApiError;
+use crate::{api_error::ApiError, models::dimension::Dimension};
 
 pub fn get_box_range(
     blob: &[u8],
@@ -88,7 +88,38 @@ pub fn get_timescale(blob: &[u8]) -> Result<u32, ApiError> {
     ))
 }
 
-pub fn get_fragment_duration(blob: &[u8]) -> Result<u32, ApiError> {
+pub fn get_fragment_duration(blob: &[u8]) -> Result<(u32, u32), ApiError> {
+    let duration = get_subsegment_duration(blob)?;
+    let sample_count = get_sample_count(blob)?;
+
+    Ok((duration, sample_count))
+}
+
+pub fn get_dimension(blob: &[u8]) -> Result<Dimension, ApiError> {
+    let box_range = get_box_range(blob, "/moov/trak/tkhd", 0)?;
+    let tkhd = &blob[box_range];
+    let version = tkhd[8];
+    let dimension_offset = match version {
+        1 => 12 + 32 + 52,
+        _ => 12 + 20 + 52,
+    };
+
+    let width = u32::from_be_bytes(
+        tkhd[dimension_offset..dimension_offset + 4]
+            .try_into()
+            .unwrap(),
+    ) >> 16;
+
+    let height = u32::from_be_bytes(
+        tkhd[dimension_offset + 4..dimension_offset + 8]
+            .try_into()
+            .unwrap(),
+    ) >> 16;
+
+    Ok(Dimension::new(width, height))
+}
+
+fn get_subsegment_duration(blob: &[u8]) -> Result<u32, ApiError> {
     const REFERENCE_SIZE: usize = 12;
     const DURATION_OFFSET: usize = 4;
     let box_range = get_box_range(blob, "/sidx", 0)?;
@@ -114,6 +145,19 @@ pub fn get_fragment_duration(blob: &[u8]) -> Result<u32, ApiError> {
 
     Ok(u32::from_be_bytes(
         segment_reference[DURATION_OFFSET..DURATION_OFFSET + 4]
+            .try_into()
+            .unwrap(),
+    ))
+}
+
+fn get_sample_count(blob: &[u8]) -> Result<u32, ApiError> {
+    const SAMPLE_COUNT_OFFSET: usize = 12;
+
+    let box_range = get_box_range(blob, "/moof/traf/trun", 0)?;
+    let trun = &blob[box_range];
+
+    Ok(u32::from_be_bytes(
+        trun[SAMPLE_COUNT_OFFSET..SAMPLE_COUNT_OFFSET + 4]
             .try_into()
             .unwrap(),
     ))
